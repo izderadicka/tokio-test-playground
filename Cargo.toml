@@ -1,0 +1,9 @@
+[package]
+name = "ttest"
+version = "0.1.0"
+authors = ["Ivan <ivan.zderadicka@gmail.com>"]
+
+[dependencies]
+tokio = "0.1"
+tokio-threadpool = "0.1"
+rand = "*"
