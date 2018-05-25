@@ -7,3 +7,4 @@ authors = ["Ivan <ivan.zderadicka@gmail.com>"]
 tokio = "0.1"
 tokio-threadpool = "0.1"
 rand = "*"
+futures = "0.1"
