@@ -5,7 +5,8 @@ extern crate tokio;
 extern crate tokio_threadpool;
 
 use futures::future::{err, poll_fn, Future};
-use futures::stream::{iter_ok, Stream};
+use futures::stream::{Stream};
+use futures::sync::mpsc::{unbounded,};
 use futures::Async;
 use rand::Rng;
 use std::env;
@@ -34,13 +35,14 @@ fn prepare_server(
         println!("Received connection from {}", socket.peer_addr().unwrap());
         let file_name = file_name.clone();
         let idx = idx.clone();
-        let lines_future = poll_fn(move || {
+        let (tx,rx) = unbounded::<String>();
+        let joker = poll_fn(move || {
             blocking(|| {
                 let i = rand::thread_rng().gen_range(0, idx.len());
                 let (from, to) = idx[i];
                 println!("Sending joke from lines: {} - {}", from, to);
                 let reader = BufReader::new(File::open(&file_name).unwrap());
-                let joke_iter = reader
+                reader
                     .lines()
                     .skip(from)
                     .take(to - from)
@@ -55,26 +57,17 @@ fn prepare_server(
                         } else {
                             None
                         }
-                    });
-
-                iter_ok::<_, ()>(joke_iter)
+                    })
+                    .for_each(|l| tx.unbounded_send(l).unwrap())
             })
-        });
+        })
+        .map_err(|e| eprintln!("Blocking error: {}", e));
 
-        let write_future = lines_future
-            .map_err(|_| eprintln!("Blocking error"))
-            .and_then(|lines_stream| Sender::new(Box::new(lines_stream), socket));
-        // let write_future = work_future
-        //     .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Blocking Error"))
-        //     .and_then(|text| {
-        //         //println!("Joke is {}", text);
-        //         io::write_all(socket, text)
-        //     })
-        //     .then(|res| {
-        //         println!("Written joke -result is Ok {:?}", res.is_ok());
-        //         Ok(())
-        //     });
+        tokio::spawn(joker);
 
+        let stream = rx
+            .map_err(|_| eprintln!("Blocking error"));
+        let write_future = Sender::new(Box::new(stream), socket);
         tokio::spawn(write_future);
 
         Ok(())
