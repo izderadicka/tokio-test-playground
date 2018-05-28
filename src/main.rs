@@ -21,7 +21,6 @@ fn prepare_server(
 
     let server = tcp.incoming().for_each(move |socket| {
         println!("Received connection from {}", socket.peer_addr().unwrap());
-        
         let i = rand::thread_rng().gen_range(0, idx.index.len());
         let (from, to) = idx.index[i];
         println!("Sending joke from lines: {} - {}", from, to);
@@ -44,10 +43,8 @@ fn prepare_server(
         let mut text = joke.join("\n");
         text.push_str("\n");
         let write_future= io::write_all(socket, text)
-        .then(|res| {
-            println!("Written joke -result is Ok {:?}",res.is_ok());
-            Ok(())
-        });
+        .map_err(|e| eprintln!("Write error: {}", e))
+        .map(|_| ());
 
         tokio::spawn(write_future);
 
