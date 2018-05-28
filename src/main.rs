@@ -6,7 +6,7 @@ use rand::Rng;
 use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 use std::time::Duration;
 use tokio::io;
 use tokio::net::TcpListener;
@@ -14,7 +14,6 @@ use tokio::prelude::*;
 
 fn prepare_server(
     addr: std::net::SocketAddr,
-    file_name: PathBuf,
     idx: Index,
 ) -> Box<Future<Item = (), Error = io::Error> + Send> {
     println!("Starting at {}", &addr);
@@ -23,16 +22,14 @@ fn prepare_server(
     let server = tcp.incoming().for_each(move |socket| {
         println!("Received connection from {}", socket.peer_addr().unwrap());
         
-        let i = rand::thread_rng().gen_range(0, idx.len());
-        let (from, to) = idx[i];
+        let i = rand::thread_rng().gen_range(0, idx.index.len());
+        let (from, to) = idx.index[i];
         println!("Sending joke from lines: {} - {}", from, to);
-        let reader = BufReader::new(File::open(&file_name).unwrap());
-        let joke: Vec<_> = reader
-            .lines()
+        
+        let joke: Vec<_> = idx
+            .lines.iter()
             .skip(from)
             .take(to - from)
-            .filter(|r| r.is_ok())
-            .map(|s| s.unwrap())
             .filter_map(|l| {
                 let s = l.trim_left();
                 if s.len() > 1 {
@@ -72,12 +69,16 @@ fn create_runtime() -> Result<tokio::runtime::Runtime, io::Error> {
         .build()
 }
 
-type Index = Vec<(usize, usize)>;
+struct Index {
+    index: Vec<(usize, usize)>,
+    lines: Vec<String>
+}
 
 fn create_index<P: AsRef<Path>>(f: P) -> Result<Index, std::io::Error> {
     let reader = BufReader::new(File::open(f)?);
     let mut start: Option<usize> = None;
     let mut idx = vec![];
+    let mut lines = vec![];
     for (no, line) in reader.lines().enumerate() {
         match line {
             Ok(l) => {
@@ -88,12 +89,16 @@ fn create_index<P: AsRef<Path>>(f: P) -> Result<Index, std::io::Error> {
                     }
                     start = Some(no + 1)
                 }
+                lines.push(l)
             }
 
             Err(e) => eprintln!("Error reading line {}: {}", no, e),
         }
     }
-    Ok(idx)
+    Ok(Index {
+        index:idx,
+        lines
+    })
 }
 
 fn main() {
@@ -108,7 +113,7 @@ fn main() {
     //let idx = Arc::new(idx);
 
     let addr = "127.0.0.1:12345".parse().unwrap();
-    let server = prepare_server(addr, jokes_file.into(), idx);
+    let server = prepare_server(addr, idx);
 
     let mut rt = create_runtime().unwrap();
 
