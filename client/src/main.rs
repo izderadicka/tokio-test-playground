@@ -9,60 +9,51 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::net::SocketAddr;
 use tokio::prelude::*;
 use tokio::net::TcpStream;
-use tokio_io::codec::LinesCodec;
 use std::time::{Instant};
 
 const DEFAULT_CONNECTIONS:usize = 100;
+const DEFAULT_SERVER:&str = "127.0.0.1:12345";
 
 lazy_static! {
     static ref JOKES: AtomicUsize  = AtomicUsize::new(0);
-    static ref LINES: AtomicUsize = AtomicUsize::new(0);
+    static ref BYTES: AtomicUsize = AtomicUsize::new(0);
 }
 
 fn main() {
 
     let count:usize = env::args().nth(1)
     .map(|x| x.parse().unwrap_or(DEFAULT_CONNECTIONS)).unwrap_or(DEFAULT_CONNECTIONS);
-    let addr:SocketAddr = "127.0.0.1:12345".parse().unwrap();
+    let server = env::args().nth(2)
+    .unwrap_or(DEFAULT_SERVER.into());
+    let addr:SocketAddr =server.parse().unwrap();
     let mut rt = tokio::runtime::Runtime::new().unwrap();
 
     let start = Instant::now();
     for _i in 0..count {
         let client = TcpStream::connect(&addr)
+        .map_err(|e| eprintln!("Read Error: {:?}",e))
         .and_then(|socket| {
-            let stream = socket.framed(LinesCodec::new());
-            let task = stream.map(|_l| {
-                1
+            //tokio::io::write_all(socket, b"hey\n\n")
+            //.map_err(|e| eprintln!("Write error: {}",e))
+            //.and_then(|(socket, _x)| {
+            tokio::io::read_to_end(socket, vec![]).map(|(_, v)| {
+                let prev = JOKES.fetch_add(1, Ordering::Relaxed);
+                BYTES.fetch_add(v.len(), Ordering::Relaxed);
+                println!("Got joke  {}", prev);
                 })
-                .fold(0, {
-                    |acc,x| futures::future::ok::<_, std::io::Error>(acc+x)
-                })
-            .and_then(|num_lines| {
-                LINES.fetch_add(num_lines, Ordering::Relaxed);
-                if num_lines > 0 {
-                    let prev = JOKES.fetch_add(1, Ordering::Relaxed);
-                    println!("Got joke  {}", prev);
-                } else {
-                    eprintln!("Got empty joke");
-                }
-                Ok(())
-            });
-            
-            task
-        })
-        .map_err(|e| eprintln!("IO Error: {:?}",e));
-
+                .map_err(|e| eprintln!("Read Error: {:?}",e))
+        //})
+        });
         rt.spawn(client);
     }
 
-    
     rt.shutdown_on_idle().wait().unwrap();
 
     let dur = start.elapsed();
 
-    println!("FINISHED - jokes {}, lines {}, duration {}.{:03}", 
+    println!("FINISHED - jokes {}, bytes {}, duration {}.{:03}", 
     JOKES.load(Ordering::Relaxed),
-    LINES.load(Ordering::Relaxed),
+    BYTES.load(Ordering::Relaxed),
     dur.as_secs(),
     dur.subsec_nanos() / 1_000_000
     );
