@@ -1,13 +1,12 @@
-#[macro_use]
 extern crate futures;
 extern crate rand;
 extern crate tokio;
 extern crate tokio_threadpool;
+extern crate tokio_io;
 
 use futures::future::{err, poll_fn, Future};
 use futures::stream::{Stream};
 use futures::sync::mpsc::{unbounded,};
-use futures::Async;
 use rand::Rng;
 use std::env;
 use std::fs::File;
@@ -16,7 +15,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener};
+use tokio_io::codec::LinesCodec;
 use tokio::prelude::*;
 use tokio_threadpool::blocking;
 
@@ -51,9 +51,7 @@ fn prepare_server(
                     .filter_map(|l| {
                         let s = l.trim_left();
                         if s.len() > 0 {
-                            let mut l = s.to_owned();
-                            l.push_str("\n");
-                            Some(l)
+                            Some(s.to_owned())
                         } else {
                             None
                         }
@@ -62,77 +60,18 @@ fn prepare_server(
             })
         })
         .map_err(|e| eprintln!("Blocking error: {}", e));
-
         tokio::spawn(joker);
 
-        let stream = rx
-            .map_err(|_| eprintln!("Blocking error"));
-        let write_future = Sender::new(Box::new(stream), socket);
+        let framed_socket = socket.framed(LinesCodec::new())
+        .sink_map_err(|e| eprintln!("Write error {}", e));
+        let write_future = rx.forward(framed_socket).
+            map(|_| ());
         tokio::spawn(write_future);
 
         Ok(())
     });
 
     Box::new(server)
-}
-
-type MyStream = Box<Stream<Item = String, Error = ()> + Send>;
-struct Sender {
-    stream: MyStream,
-    socket: TcpStream,
-    buf: Vec<u8>,
-    pos: usize,
-}
-
-impl Sender {
-    fn new(stream: MyStream, socket: TcpStream) -> Self {
-        Sender {
-            stream: stream,
-            socket: socket,
-            buf: vec![],
-            pos: 0,
-        }
-    }
-
-    fn write(&mut self) -> futures::Poll<usize, ()> {
-        while self.pos < self.buf.len() {
-            match self.socket.poll_write(&self.buf[self.pos..]) {
-                Err(e) => {
-                    eprintln!("Error writing to socket: {}", e);
-                    return Err(());
-                }
-                Ok(Async::NotReady) => return Ok(Async::NotReady),
-                Ok(Async::Ready(0)) => {
-                    eprintln!("Error write 0 bytes");
-                    return Err(());
-                }
-                Ok(Async::Ready(n)) => self.pos += n,
-            };
-        }
-        Ok(Async::Ready(self.pos))
-    }
-}
-
-impl Future for Sender {
-    type Item = ();
-    type Error = ();
-
-    fn poll(&mut self) -> futures::Poll<Self::Item, Self::Error> {
-        // write remainder of previous line
-        try_ready!(self.write());
-        while let Async::Ready(x) = self.stream.poll()? {
-            match x {
-                Some(l) => {
-                    self.buf = l.into_bytes();
-                    self.pos = 0;
-                    // write what we can
-                    try_ready!(self.write());
-                }
-                None => return Ok(Async::Ready(())),
-            }
-        }
-        Ok(Async::NotReady)
-    }
 }
 
 fn create_runtime() -> Result<tokio::runtime::Runtime, io::Error> {
