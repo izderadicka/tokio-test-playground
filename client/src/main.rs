@@ -31,18 +31,18 @@ fn main() {
     let start = Instant::now();
     for _i in 0..count {
         let client = TcpStream::connect(&addr)
-        .map_err(|e| eprintln!("Read Error: {:?}",e))
+        .map_err(|e| eprintln!("Connection Error: {:?}",e))
         .and_then(|socket| {
-            //tokio::io::write_all(socket, b"hey\n\n")
-            //.map_err(|e| eprintln!("Write error: {}",e))
-            //.and_then(|(socket, _x)| {
+            // tokio::io::write_all(socket, b"hey\n\n")
+            // .map_err(|e| eprintln!("Write error: {}",e))
+            // .and_then(|(socket, _x)| {
             tokio::io::read_to_end(socket, vec![]).map(|(_, v)| {
                 let prev = JOKES.fetch_add(1, Ordering::Relaxed);
                 BYTES.fetch_add(v.len(), Ordering::Relaxed);
                 println!("Got joke  {}", prev);
                 })
                 .map_err(|e| eprintln!("Read Error: {:?}",e))
-        //})
+        // })
         });
         rt.spawn(client);
     }
