@@ -29,15 +29,7 @@ fn prepare_server(
             .lines.iter()
             .skip(from)
             .take(to - from)
-            .filter_map(|l| {
-                let s = l.trim_left();
-                if s.len() > 1 {
-                    Some(s.to_owned())
-                   
-                } else {
-                None
-                }
-            })
+            .map(|s| s.to_owned())
             .collect();
 
         let mut text = joke.join("\n");
@@ -76,7 +68,8 @@ fn create_index<P: AsRef<Path>>(f: P) -> Result<Index, std::io::Error> {
     let mut start: Option<usize> = None;
     let mut idx = vec![];
     let mut lines = vec![];
-    for (no, line) in reader.lines().enumerate() {
+    let mut no = 0;
+    for line in reader.lines() {
         match line {
             Ok(l) => {
                 if l.starts_with("---") {
@@ -84,9 +77,15 @@ fn create_index<P: AsRef<Path>>(f: P) -> Result<Index, std::io::Error> {
                         //println!("joke from {} to {}", s, no);
                         idx.push((s, no));
                     }
-                    start = Some(no + 1)
+                    start = Some(no)
+                } else {
+                    let s = l.trim_left();
+                    if s.len() > 1 {
+                        lines.push(s.to_owned());
+                        no+=1;
+                    }
                 }
-                lines.push(l)
+                
             }
 
             Err(e) => eprintln!("Error reading line {}: {}", no, e),
